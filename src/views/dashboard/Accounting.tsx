@@ -17,9 +17,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { SITE } from "@/lib/site";
 import { printReceipt } from "@/lib/printReceipt";
 import TillCloseout from "@/components/accounting/TillCloseout";
+import { MoMCards, DeptChart, TrendChart, TopTests, ExportButtons } from "@/components/accounting/Analytics";
 import {
   DEPARTMENTS, PAYMENT_METHODS, EXPENSE_CATEGORIES, EXPENSE_CATEGORY_HINTS, naira, invoiceTotals, balanceDue, agingBucket,
-  profitAndLoss, sumBy, monthRange, type Invoice, type InvoiceItem, type Payment, type Expense,
+  profitAndLoss, sumBy, monthRange, prevMonth, debtorGroup, type Invoice, type InvoiceItem, type Payment, type Expense,
 } from "@/lib/accounting";
 
 const db = supabase as any;
@@ -27,17 +28,22 @@ const thisMonth = () => new Date().toISOString().slice(0, 7);
 
 function useMonthData(ym: string) {
   const r = monthRange(ym);
+  const pr = monthRange(prevMonth(ym));
   return useQuery({
     queryKey: ["accounting", ym],
     queryFn: async () => {
-      const [inv, pay, exp, open] = await Promise.all([
+      const [inv, pay, exp, open, pinv, ppay, pexp] = await Promise.all([
         db.from("invoices").select("*, invoice_items(*), payments(*)").gte("created_at", r.start).lt("created_at", r.end).order("created_at", { ascending: false }),
         db.from("payments").select("*").gte("created_at", r.start).lt("created_at", r.end),
         db.from("expenses").select("*").gte("expense_date", r.startDate).lt("expense_date", r.endDate).order("expense_date", { ascending: false }),
         db.from("invoices").select("*").in("status", ["Unpaid", "Partial"]),
+        db.from("invoices").select("*").gte("created_at", pr.start).lt("created_at", pr.end),
+        db.from("payments").select("*").gte("created_at", pr.start).lt("created_at", pr.end),
+        db.from("expenses").select("*").gte("expense_date", pr.startDate).lt("expense_date", pr.endDate),
       ]);
-      for (const x of [inv, pay, exp, open]) if (x.error) throw x.error;
-      return { invoices: inv.data as Invoice[], payments: pay.data as Payment[], expenses: exp.data as Expense[], open: open.data as Invoice[] };
+      for (const x of [inv, pay, exp, open, pinv, ppay, pexp]) if (x.error) throw x.error;
+      return { invoices: inv.data as Invoice[], payments: pay.data as Payment[], expenses: exp.data as Expense[], open: open.data as Invoice[],
+        prev: profitAndLoss(pinv.data as Invoice[], ppay.data as Payment[], pexp.data as Expense[]) };
     },
   });
 }
@@ -238,7 +244,7 @@ const Accounting = () => {
   const [newInv, setNewInv] = useState(false); const [newExp, setNewExp] = useState(false);
   const [payFor, setPayFor] = useState<Invoice | null>(null);
   const [search, setSearch] = useState("");
-  const [expCat, setExpCat] = useState("all"); const [expSearch, setExpSearch] = useState("");
+  const [debtGroup, setDebtGroup] = useState("all"); const [expCat, setExpCat] = useState("all"); const [expSearch, setExpSearch] = useState("");
   const { data, isLoading, error } = useMonthData(ym);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -302,7 +308,13 @@ const Accounting = () => {
               <Kpi label="Total expenses" value={calc.pl.cogs + calc.pl.opex} tone="bad" />
               <Kpi label="Net profit" value={calc.pl.netProfit} tone={calc.pl.netProfit >= 0 ? "good" : "bad"} />
             </div>
+            <MoMCards cur={calc.pl} prev={data.prev} />
+            <ExportButtons ym={ym} cur={calc.pl} prev={data.prev} dept={calc.byDept} invoices={data.invoices} payments={data.payments} expenses={data.expenses} receivable={calc.receivable} aging={calc.aging} />
             <div className="grid lg:grid-cols-2 gap-4">
+              <Card><CardHeader><CardTitle className="text-base">This month vs last month</CardTitle></CardHeader>
+                <CardContent><TrendChart ym={ym} prevYm={prevMonth(ym)} cur={calc.pl} prev={data.prev} /></CardContent></Card>
+              <Card><CardHeader><CardTitle className="text-base">Top tests by volume</CardTitle></CardHeader>
+                <CardContent><TopTests invoices={data.invoices} /></CardContent></Card>
               <Card><CardHeader className="flex-row items-center justify-between"><CardTitle className="text-base">Profit & Loss — {ym}</CardTitle>
                 <Button size="sm" variant="outline" onClick={() => exportCsv(`pnl-${ym}.csv`, [["Line", "Amount"], ["Gross revenue", calc.pl.gross], ["Discounts", -calc.pl.discounts], ["Net revenue", calc.pl.netBilled], ["Cost of tests (reagents)", -calc.pl.cogs], ["Gross margin", calc.pl.grossMargin], ["Operating expenses", -calc.pl.opex], ["Net profit", calc.pl.netProfit], ["Cash collected", calc.pl.collected]])}><Download className="h-4 w-4 mr-1" />CSV</Button>
               </CardHeader>
@@ -312,13 +324,7 @@ const Accounting = () => {
                   ))}
                 </TableBody></Table></CardContent></Card>
               <Card><CardHeader><CardTitle className="text-base">Revenue by department</CardTitle></CardHeader>
-                <CardContent className="space-y-2">
-                  {calc.byDept.length === 0 && <p className="text-sm text-muted-foreground">No invoices this month.</p>}
-                  {calc.byDept.map(([d, v]) => (
-                    <div key={d}><div className="flex justify-between text-sm"><span>{d}</span><span>{naira(v)}</span></div>
-                      <div className="h-2 bg-muted rounded"><div className="h-2 bg-primary rounded" style={{ width: `${calc.pl.gross ? (v / calc.pl.gross) * 100 : 0}%` }} /></div></div>
-                  ))}
-                </CardContent></Card>
+                <CardContent><DeptChart data={calc.byDept} /></CardContent></Card>
               <Card><CardHeader><CardTitle className="text-base">Collections by method</CardTitle></CardHeader>
                 <CardContent><Table><TableBody>{calc.byMethod.map(([m, v]) => <TableRow key={m}><TableCell>{m}</TableCell><TableCell className="text-right">{naira(v)}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
               <Card><CardHeader><CardTitle className="text-base">Expenses by category</CardTitle></CardHeader>
@@ -388,11 +394,19 @@ const Accounting = () => {
               <Kpi label="Total owed" value={calc.receivable} tone="bad" />
               {Object.entries(calc.aging).map(([k, v]) => <Kpi key={k} label={`${k} days`} value={v} />)}
             </div>
+            <div className="flex flex-wrap gap-2">
+              {["all", "Current", "Overdue", "Delinquent"].map((g) => (
+                <Button key={g} size="sm" variant={debtGroup === g ? "default" : "outline"} onClick={() => setDebtGroup(g)}>
+                  {g === "all" ? "All" : g === "Current" ? "Current (0–30d)" : g === "Overdue" ? "Overdue (31–60d)" : "Delinquent (60+d)"}
+                </Button>
+              ))}
+              <Button size="sm" variant="outline" onClick={() => exportCsv(`debtors.csv`, [["Invoice", "Date", "Patient", "Phone", "Group", "Balance"], ...data.open.filter((i) => debtGroup === "all" || debtorGroup(i.created_at) === debtGroup).map((i) => [i.invoice_number, i.created_at.slice(0, 10), i.patient_name, i.patient_phone ?? "", debtorGroup(i.created_at), balanceDue(i)])])}><Download className="h-4 w-4 mr-1" />CSV</Button>
+            </div>
             <Table>
               <TableHeader><TableRow><TableHead>Invoice</TableHead><TableHead>Patient</TableHead><TableHead>Age</TableHead><TableHead className="text-right">Balance</TableHead><TableHead /></TableRow></TableHeader>
-              <TableBody>{data.open.map((i) => (
+              <TableBody>{data.open.filter((i) => debtGroup === "all" || debtorGroup(i.created_at) === debtGroup).map((i) => (
                 <TableRow key={i.id}><TableCell>{i.invoice_number}</TableCell><TableCell>{i.patient_name}<div className="text-xs text-muted-foreground">{i.patient_phone}</div></TableCell>
-                  <TableCell>{agingBucket(i.created_at)} days</TableCell><TableCell className="text-right">{naira(balanceDue(i))}</TableCell>
+                  <TableCell><Badge variant={debtorGroup(i.created_at) === "Current" ? "secondary" : "destructive"}>{debtorGroup(i.created_at)}</Badge><div className="text-xs text-muted-foreground">{agingBucket(i.created_at)} days</div></TableCell><TableCell className="text-right">{naira(balanceDue(i))}</TableCell>
                   <TableCell><Button size="sm" variant="outline" onClick={() => setPayFor(i)}>Pay</Button></TableCell></TableRow>
               ))}</TableBody>
             </Table>

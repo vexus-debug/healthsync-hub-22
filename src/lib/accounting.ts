@@ -74,3 +74,28 @@ export function monthRange(ym: string) {
   const end = new Date(Date.UTC(y!, m!, 1));
   return { start: start.toISOString(), end: end.toISOString(), startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
+
+/** Month-over-month % change; null when previous is 0. */
+export const pctChange = (cur: number, prev: number) => (prev ? ((cur - prev) / Math.abs(prev)) * 100 : null);
+
+/** Phase 3 debtor groups: Current 0–30, Overdue 31–60, Delinquent 60+. */
+export function debtorGroup(createdAt: string, now = new Date()): "Current" | "Overdue" | "Delinquent" {
+  const days = Math.floor((now.getTime() - new Date(createdAt).getTime()) / 86400000);
+  return days <= 30 ? "Current" : days <= 60 ? "Overdue" : "Delinquent";
+}
+
+export function topTests(invoices: Invoice[], limit = 10) {
+  const m: Record<string, { name: string; department: string; volume: number; revenue: number }> = {};
+  for (const i of invoices) if (i.status !== "Void") for (const it of i.invoice_items ?? []) {
+    const k = it.description.trim().toLowerCase();
+    m[k] ??= { name: it.description.trim(), department: it.department, volume: 0, revenue: 0 };
+    m[k].volume += Number(it.quantity); m[k].revenue += Number(it.quantity) * Number(it.unit_price);
+  }
+  return Object.values(m).sort((a, b) => b.volume - a.volume || b.revenue - a.revenue).slice(0, limit);
+}
+
+export function prevMonth(ym: string) {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(Date.UTC(y!, m! - 2, 1));
+  return d.toISOString().slice(0, 7);
+}
