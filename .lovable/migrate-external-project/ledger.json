@@ -1,0 +1,19 @@
+{
+  "source": "github",
+  "source_url": "https://github.com/vexus-debug/healthsync-hub-36.git",
+  "capabilities": [
+    { "capability": "code", "source": "GitHub repository", "outcome": "Repository source files copied into the project", "status": "complete", "next_action": "" },
+    { "capability": "dependencies", "source": "package.json and bun.lock", "outcome": "Dependencies installed with Bun", "status": "complete", "next_action": "" },
+    { "capability": "schema", "source": "Supabase SQL migrations", "outcome": "Will be copied unchanged; not applied", "status": "pending", "next_action": "Apply or reconcile the schema in the intended database before using live data" },
+    { "capability": "records", "source": "Supabase", "outcome": "No record export was included", "status": "pending", "next_action": "Request CSV or JSON exports if existing records should be moved" },
+    { "capability": "auth identities", "source": "Supabase Auth", "outcome": "Source auth code retained; no user export included", "status": "pending", "next_action": "Migrate user identities before production cutover" },
+    { "capability": "authorization", "source": "Supabase policies and application code", "outcome": "Source files retained; live behavior not verified", "status": "pending", "next_action": "Verify access rules against the intended database" },
+    { "capability": "uploaded file bytes", "source": "Supabase Storage", "outcome": "Policy references exist; file export was not included", "status": "pending", "next_action": "Export and migrate stored files if they are needed" },
+    { "capability": "external providers", "source": "Supabase integration", "outcome": "Integration code retained; private environment values excluded", "status": "pending", "next_action": "Configure required environment values securely" },
+    { "capability": "public endpoints", "source": "Supabase function manage-scientist", "outcome": "Source function retained; deployment not performed", "status": "pending", "next_action": "Deploy or replace the endpoint before relying on it" },
+    { "capability": "callbacks, webhooks, schedules", "source": "Repository", "outcome": "Not verified during this code-only import", "status": "pending", "next_action": "Review only if these production integrations are required" },
+    { "capability": "secrets", "source": "Repository environment file", "outcome": "Private .env excluded from import", "status": "pending", "next_action": "Configure required values through project secrets" },
+    { "capability": "cutover", "source": "Source application", "outcome": "No cutover requested", "status": "pending", "next_action": "Coordinate only if moving an active deployment" },
+    { "capability": "verification", "source": "User instruction", "outcome": "Tests and checks intentionally not run", "status": "pending", "next_action": "User will verify the import" }
+  ]
+}
